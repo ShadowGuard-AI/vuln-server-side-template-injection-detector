@@ -63,6 +63,9 @@ def expected_marker(payload):
         no arithmetic marker.
     """
     inner = payload.strip()
+    # Prefix order matters: the two character wrappers must be tried after
+    # their longer cousins, or ${{ would lose only ${ and leave a brace
+    # that fails the arithmetic character check below.
     for prefix in ("${{", "{{", "${", "#{", "<%=", "<%"):
         if inner.startswith(prefix):
             inner = inner[len(prefix):]
@@ -164,8 +167,13 @@ def check_ssti(url, data=None, headers=None, method="GET", timeout=10, user_agen
         marker = expected_marker(payload)
 
         if marker is not None:
+            # An arithmetic marker with no baseline earns nothing: the
+            # branch below for file signatures can still fire without one,
+            # but a bare number like 49 is too common to trust alone.
             if baseline_content is not None and marker in content and marker not in baseline_content:
                 logging.warning(f"Possible SSTI vulnerability detected! Payload: {payload}, Expected Result: {marker}")
+                # First positive ends the scan. The completed count in the
+                # result is the honest record of how few payloads that took.
                 return {"vulnerable": True, "completed": completed, "attempted": len(SSTI_PAYLOADS)}
         else:
             for signature in FILE_READ_SIGNATURES:
@@ -173,6 +181,8 @@ def check_ssti(url, data=None, headers=None, method="GET", timeout=10, user_agen
                     logging.warning(f"Possible SSTI vulnerability detected! Payload: {payload}, response contains file content evidence.")
                     return {"vulnerable": True, "completed": completed, "attempted": len(SSTI_PAYLOADS)}
 
+        # Reflection is logged and nothing more. A page that echoes input
+        # has shown me an encoding gap, not a template engine at work.
         if payload in content:
             logging.info(f"Payload {payload} reflected in response, but the expression was not run.")
 
